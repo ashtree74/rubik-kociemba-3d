@@ -9,6 +9,10 @@ The app is built with Vite, Three.js, plain JavaScript, and a custom Rust/WASM m
 
 ## Live Pages
 
+Public demo:
+
+- SkimmIQ solver: https://rubik-kociemba-3d.vercel.app/skimmiq.html
+
 When running locally:
 
 - Rubik cube: `http://127.0.0.1:5173/`
