@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkimmIQ 3D Solver</title>
+  </head>
+  <body>
+    <div id="skimmiqApp">
+      <main class="stage skimmiq-stage">
+        <canvas id="skimmiqCanvas" aria-label="Interactive 3D SkimmIQ cube"></canvas>
+        <div class="stage-bar">
+          <div>
+            <span class="eyebrow">State</span>
+            <strong id="skimmiqStateLabel">Solved</strong>
+          </div>
+          <div>
+            <span class="eyebrow">Solver</span>
+            <strong id="skimmiqSolverLabel">Ready</strong>
+          </div>
+        </div>
+      </main>
+
+      <aside class="panel skimmiq-panel">
+        <header class="panel-header">
+          <div>
+            <p class="eyebrow">SkimmIQ</p>
+            <h1>Tapes + state solver</h1>
+          </div>
+          <div class="header-actions">
+            <a class="ghost-link" href="/">Rubik</a>
+            <button id="skimmiqResetBtn" class="ghost-button" type="button">Reset</button>
+          </div>
+        </header>
+
+        <section class="controls-block">
+          <div class="section-title">
+            <h2>Layout</h2>
+            <span id="skimmiqLayoutLabel">3x3x3</span>
+          </div>
+          <div id="skimmiqLayoutControls" class="choice-grid"></div>
+        </section>
+
+        <section class="controls-block">
+          <div class="section-title">
+            <h2>Difficulty</h2>
+            <span id="skimmiqDifficultyLabel">Classic</span>
+          </div>
+          <div id="skimmiqDifficultyControls" class="choice-grid choice-grid-wide"></div>
+        </section>
+
+        <section class="controls-block">
+          <div class="section-title">
+            <h2>Tapes</h2>
+            <span id="skimmiqMoveLabel">x0 / y0 / z0</span>
+          </div>
+          <div id="skimmiqMoveControls" class="tape-grid"></div>
+        </section>
+
+        <section class="controls-block">
+          <div class="section-title">
+            <h2>Actions</h2>
+          </div>
+          <div class="primary-actions">
+            <button id="skimmiqScrambleBtn" class="primary-button" type="button">Scramble</button>
+            <button id="skimmiqSolveBtn" class="solve-button" type="button">Solve</button>
+          </div>
+          <label class="speed-row" for="skimmiqSpeedRange">
+            <span>Speed</span>
+            <input id="skimmiqSpeedRange" type="range" min="40" max="360" value="130" />
+          </label>
+          <div class="solver-progress" aria-live="polite">
+            <div>
+              <span class="eyebrow">Progress</span>
+              <strong id="skimmiqProgressText">Ready</strong>
+            </div>
+            <span id="skimmiqProgressMeta">0 states</span>
+          </div>
+        </section>
+
+        <section class="controls-block">
+          <div class="section-title">
+            <h2>Sequence</h2>
+            <button id="skimmiqClearLogBtn" class="link-button" type="button">Clear</button>
+          </div>
+          <div id="skimmiqMoveLog" class="move-log" aria-live="polite">-</div>
+        </section>
+      </aside>
+    </div>
+
+    <script type="module" src="/src/skimmiq-page.js"></script>
+  </body>
+</html>

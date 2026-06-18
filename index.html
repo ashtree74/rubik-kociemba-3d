@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rubik 3D Solver</title>
+  </head>
+  <body>
+    <div id="app">
+      <main class="stage">
+        <canvas id="cubeCanvas" aria-label="Interactive 3D Rubik's Cube"></canvas>
+        <div class="stage-bar">
+          <div>
+            <span class="eyebrow">State</span>
+            <strong id="stateLabel">Solved</strong>
+          </div>
+          <div>
+            <span class="eyebrow">Solver</span>
+            <strong id="solverLabel">Ready</strong>
+          </div>
+        </div>
+      </main>
+
+      <aside class="panel">
+        <header class="panel-header">
+          <div>
+            <p class="eyebrow">Rubik 3D</p>
+            <h1>Cube + Kociemba solver</h1>
+          </div>
+          <div class="header-actions">
+            <a class="ghost-link" href="/skimmiq.html">SkimmIQ</a>
+            <button id="resetBtn" class="ghost-button" type="button">Reset</button>
+          </div>
+        </header>
+
+        <section class="controls-block">
+          <div class="section-title">
+            <h2>Moves</h2>
+            <span id="selectedFaceLabel">Selected: F</span>
+          </div>
+          <div class="face-actions">
+            <button id="turnCcwBtn" type="button" aria-label="Turn the selected face counterclockwise">↺</button>
+            <button id="turnHalfBtn" type="button" aria-label="Turn the selected face 180 degrees">2</button>
+            <button id="turnCwBtn" type="button" aria-label="Turn the selected face clockwise">↻</button>
+          </div>
+          <div id="movesGrid" class="moves-grid" aria-label="Face moves"></div>
+        </section>
+
+        <section class="controls-block">
+          <div class="section-title">
+            <h2>Actions</h2>
+          </div>
+          <div class="primary-actions">
+            <button id="scrambleBtn" class="primary-button" type="button">Scramble</button>
+            <button id="solveBtn" class="solve-button" type="button">Solve</button>
+          </div>
+          <label class="speed-row" for="speedRange">
+            <span>Speed</span>
+            <input id="speedRange" type="range" min="90" max="520" value="220" />
+          </label>
+        </section>
+
+        <section class="controls-block">
+          <div class="section-title">
+            <h2>Sequence</h2>
+            <button id="clearLogBtn" class="link-button" type="button">Clear</button>
+          </div>
+          <div id="moveLog" class="move-log" aria-live="polite">-</div>
+        </section>
+      </aside>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

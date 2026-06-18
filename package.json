@@ -1,0 +1,17 @@
+{
+  "name": "rubik-kociemba-3d",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "test": "node tests/solver.test.js && node tests/skimmiq.test.js"
+  },
+  "dependencies": {
+    "three": "^0.179.1"
+  },
+  "devDependencies": {
+    "vite": "^7.1.5"
+  }
+}
