@@ -133,12 +133,16 @@ scene.add(lowerFill);
 const group = new THREE.Group();
 scene.add(group);
 
+const raycaster = new THREE.Raycaster();
+const pointerNdc = new THREE.Vector2();
+
 let puzzle = new SkimmiqPuzzle("E", "classic");
 let selectedLayoutId = "E";
 let selectedDifficultyId = "classic";
 let stickerMeshes = new Map();
 let stickerTiles = new Map();
 let stickerSlots = new Map();
+let bodyMesh = null;
 let busy = false;
 let worker = null;
 let history = [];
@@ -146,6 +150,7 @@ let lastMove = null;
 let layoutMode = "";
 let activeBodyDimensions = getBodyDimensions(puzzle.layout);
 let activeBodyRadius = bodyRadiusForDimensions(activeBodyDimensions);
+let dragState = null;
 
 renderLayoutButtons();
 renderDifficultyButtons();
@@ -160,6 +165,13 @@ resetBtn.addEventListener("click", () => resetPuzzle());
 clearLogBtn.addEventListener("click", () => {
   history = [];
   renderMoveLog();
+});
+canvas.addEventListener("pointerdown", handleCanvasPointerDown, { capture: true });
+canvas.addEventListener("pointermove", handleCanvasPointerMove, { capture: true });
+canvas.addEventListener("pointerup", handleCanvasPointerUp, { capture: true });
+canvas.addEventListener("pointercancel", handleCanvasPointerCancel, { capture: true });
+canvas.addEventListener("pointerleave", () => {
+  if (!dragState) canvas.style.cursor = "";
 });
 
 function renderLayoutButtons() {
@@ -212,6 +224,7 @@ function buildSceneStickers() {
   stickerMeshes = new Map();
   stickerTiles = new Map();
   stickerSlots = new Map();
+  bodyMesh = null;
 
   activeBodyDimensions = getBodyDimensions(puzzle.layout);
   activeBodyRadius = bodyRadiusForDimensions(activeBodyDimensions);
@@ -230,6 +243,8 @@ function buildSceneStickers() {
   const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
   body.castShadow = true;
   body.receiveShadow = true;
+  body.userData = { skimmiqBody: true };
+  bodyMesh = body;
   group.add(body);
 
   for (let index = 0; index < puzzle.stickers.length; index += 1) {
@@ -248,6 +263,201 @@ function buildSceneStickers() {
     stickerSlots.set(index, slot);
     group.add(tile);
   }
+}
+
+function handleCanvasPointerDown(event) {
+  if (busy || event.button !== 0) return;
+
+  const hit = raycastSkimmiq(event);
+  if (!hit) {
+    controls.enabled = true;
+    return;
+  }
+
+  stopPointerEvent(event);
+  controls.enabled = false;
+  canvas.setPointerCapture?.(event.pointerId);
+
+  if (hit.type !== "sticker") {
+    dragState = {
+      mode: "body",
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY
+    };
+    return;
+  }
+
+  const slot = stickerSlots.get(hit.stickerIndex);
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(slot.normal, slot.position);
+  const startPoint = intersectPointerPlane(event, plane) || hit.point.clone();
+  dragState = {
+    mode: "sticker",
+    plane,
+    pointerId: event.pointerId,
+    startClientX: event.clientX,
+    startClientY: event.clientY,
+    startPoint,
+    stickerIndex: hit.stickerIndex
+  };
+  canvas.style.cursor = "grabbing";
+}
+
+function handleCanvasPointerMove(event) {
+  if (!dragState) {
+    updateCanvasCursor(event);
+    return;
+  }
+  if (dragState.pointerId !== event.pointerId) return;
+  stopPointerEvent(event);
+}
+
+function handleCanvasPointerUp(event) {
+  if (!dragState || dragState.pointerId !== event.pointerId) return;
+  stopPointerEvent(event);
+
+  const state = dragState;
+  clearCanvasDrag(event.pointerId);
+  if (state.mode !== "sticker") return;
+
+  const endPoint = intersectPointerPlane(event, state.plane);
+  if (!endPoint) return;
+
+  const screenDistance = Math.hypot(event.clientX - state.startClientX, event.clientY - state.startClientY);
+  const dragVector = endPoint.sub(state.startPoint);
+  if (screenDistance < 18 || dragVector.lengthSq() < 0.012) return;
+
+  const move = getMoveFromStickerDrag(state.stickerIndex, dragVector);
+  if (move) runMove(move);
+}
+
+function handleCanvasPointerCancel(event) {
+  if (!dragState || dragState.pointerId !== event.pointerId) return;
+  stopPointerEvent(event);
+  clearCanvasDrag(event.pointerId);
+}
+
+function clearCanvasDrag(pointerId) {
+  canvas.releasePointerCapture?.(pointerId);
+  dragState = null;
+  controls.enabled = true;
+  canvas.style.cursor = "";
+}
+
+function stopPointerEvent(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation?.();
+}
+
+function updateCanvasCursor(event) {
+  if (busy) {
+    canvas.style.cursor = "";
+    return;
+  }
+  const hit = raycastSkimmiq(event);
+  canvas.style.cursor = hit && hit.type === "sticker" ? "grab" : "";
+}
+
+function raycastSkimmiq(event) {
+  updatePointerNdc(event);
+  raycaster.setFromCamera(pointerNdc, camera);
+
+  const stickerHits = raycaster.intersectObjects(Array.from(stickerMeshes.values()), false);
+  const stickerHit = stickerHits.find((hit) => Number.isInteger(hit.object.userData.stickerIndex));
+  if (stickerHit) {
+    return {
+      point: stickerHit.point,
+      stickerIndex: stickerHit.object.userData.stickerIndex,
+      type: "sticker"
+    };
+  }
+
+  if (bodyMesh && raycaster.intersectObject(bodyMesh, false).length) {
+    return { type: "body" };
+  }
+  return null;
+}
+
+function updatePointerNdc(event) {
+  const rect = canvas.getBoundingClientRect();
+  pointerNdc.x = ((event.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
+  pointerNdc.y = -((event.clientY - rect.top) / Math.max(1, rect.height)) * 2 + 1;
+}
+
+function intersectPointerPlane(event, plane) {
+  updatePointerNdc(event);
+  raycaster.setFromCamera(pointerNdc, camera);
+  const point = new THREE.Vector3();
+  return raycaster.ray.intersectPlane(plane, point);
+}
+
+function getMoveFromStickerDrag(stickerIndex, dragVector) {
+  const slot = stickerSlots.get(stickerIndex);
+  if (!slot) return null;
+
+  const directionVector = dragVector
+    .clone()
+    .addScaledVector(slot.normal, -dragVector.dot(slot.normal));
+  if (directionVector.lengthSq() < 0.001) return null;
+  directionVector.normalize();
+
+  let best = null;
+  for (const tape of puzzle.tapes) {
+    const cycleIndex = tape.cycle.indexOf(stickerIndex);
+    if (cycleIndex < 0) continue;
+
+    const tangent = getTapePlusTangent(tape, cycleIndex);
+    if (!tangent) continue;
+
+    const score = directionVector.dot(tangent);
+    const magnitude = Math.abs(score);
+    if (!best || magnitude > best.magnitude) {
+      best = {
+        direction: score >= 0 ? 1 : -1,
+        magnitude,
+        tapeId: tape.id
+      };
+    }
+  }
+
+  if (!best || best.magnitude < 0.38) return null;
+  return { tapeId: best.tapeId, direction: best.direction };
+}
+
+function getTapePlusTangent(tape, cycleIndex) {
+  const cycle = tape.cycle;
+  const currentIndex = cycle[cycleIndex];
+  const current = stickerSlots.get(currentIndex);
+  if (!current) return null;
+
+  const next = stickerSlots.get(cycle[(cycleIndex + 1) % cycle.length]);
+  const previous = stickerSlots.get(cycle[(cycleIndex - 1 + cycle.length) % cycle.length]);
+
+  let tangent = null;
+  if (next && next.face === current.face) {
+    tangent = next.position.clone().sub(current.position);
+  } else if (previous && previous.face === current.face) {
+    tangent = current.position.clone().sub(previous.position);
+  } else if (next) {
+    tangent = tangentTowardAdjacentFace(current, next);
+  }
+
+  if (!tangent || tangent.lengthSq() < 0.001) return null;
+  tangent.addScaledVector(current.normal, -tangent.dot(current.normal));
+  if (tangent.lengthSq() < 0.001) return null;
+  return tangent.normalize();
+}
+
+function tangentTowardAdjacentFace(from, to) {
+  const edgeAxis = from.normal.clone().cross(to.normal);
+  if (edgeAxis.lengthSq() < 0.01) return null;
+  edgeAxis.normalize();
+
+  const towardTarget = to.position.clone().sub(from.position);
+  const tangent = edgeAxis.clone().cross(from.normal).normalize();
+  if (tangent.dot(towardTarget) < 0) tangent.negate();
+  return tangent;
 }
 
 function createStickerMesh(colorCode, geometry = stickerGeometry) {
