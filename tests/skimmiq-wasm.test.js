@@ -107,6 +107,14 @@ class Writer {
   }
 }
 
+const oneMovePuzzle = new SkimmiqPuzzle("A", "classic");
+oneMovePuzzle.applyMove({ tapeId: "x0", direction: 1 });
+const oneMove = solveWithWasm(oneMovePuzzle);
+assert.equal(oneMove.status, 1, "WASM solver should solve a one-move state");
+assert.equal(oneMove.moves.length, 1, "single move should be solved optimally on small layouts");
+oneMovePuzzle.applyMoves(oneMove.moves);
+assert.equal(oneMovePuzzle.isSolved(), true, "WASM one-move solution should solve");
+
 for (const [length, seed] of [[8, 101], [20, 303]]) {
   const puzzle = new SkimmiqPuzzle("E", "classic");
   puzzle.applyMoves(deterministicSkimmiqScramble(puzzle, length, seed));

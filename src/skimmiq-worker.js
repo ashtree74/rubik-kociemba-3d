@@ -1,4 +1,3 @@
-import { solveSkimmiq } from "./skimmiq-solver.js";
 import { solveSkimmiqWasm } from "./skimmiq-wasm.js";
 
 self.onmessage = async (event) => {
@@ -8,44 +7,19 @@ self.onmessage = async (event) => {
   try {
     const options = {
       timeoutMs: message.timeoutMs ?? 25000,
-      maxDepth: message.maxDepth ?? 28,
-      beamWidth: message.beamWidth,
-      onProgress: (progress) => {
-        self.postMessage({ type: "progress", progress });
-      }
+      tableDepth: message.tableDepth,
+      forwardDepth: message.forwardDepth,
+      macroTiers: message.macroTiers,
+      macroDepth: message.macroDepth,
+      macroWidth: message.macroWidth,
+      macroRestarts: message.macroRestarts
     };
 
-    if (message.useWasm !== false) {
-      try {
-        self.postMessage({
-          type: "progress",
-          progress: { phase: "wasm-solve", depth: 0, nodes: 0, frontier: 0, elapsedMs: 0 }
-        });
-        const wasmResult = await solveSkimmiqWasm(message.state, options);
-        if (wasmResult.status === "solved") {
-          self.postMessage({ type: "result", result: wasmResult });
-          return;
-        }
-        self.postMessage({
-          type: "progress",
-          progress: { phase: "js-fallback", depth: 0, nodes: wasmResult.nodes, frontier: 0, elapsedMs: wasmResult.elapsedMs }
-        });
-      } catch (error) {
-        self.postMessage({
-          type: "progress",
-          progress: {
-            phase: "js-fallback",
-            depth: 0,
-            nodes: 0,
-            frontier: 0,
-            elapsedMs: 0,
-            reason: error instanceof Error ? error.message : String(error)
-          }
-        });
-      }
-    }
-
-    const result = solveSkimmiq(message.state, options);
+    self.postMessage({
+      type: "progress",
+      progress: { phase: "wasm-solve", depth: 0, nodes: 0, frontier: 0, elapsedMs: 0 }
+    });
+    const result = await solveSkimmiqWasm(message.state, options);
     self.postMessage({ type: "result", result });
   } catch (error) {
     self.postMessage({

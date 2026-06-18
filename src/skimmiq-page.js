@@ -92,6 +92,9 @@ const renderer = new THREE.WebGLRenderer({
   preserveDrawingBuffer: true
 });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.08;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -102,14 +105,20 @@ controls.minDistance = 4;
 controls.maxDistance = 13;
 controls.target.set(0, 0, 0);
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x191820, 2.7));
+scene.add(new THREE.HemisphereLight(0xffffff, 0xded3bd, 2.75));
 const key = new THREE.DirectionalLight(0xffffff, 3.4);
 key.position.set(4.5, 6, 5);
 key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.bias = -0.00012;
+key.shadow.normalBias = 0.045;
 scene.add(key);
 const fill = new THREE.DirectionalLight(0x40dff4, 1.2);
 fill.position.set(-5, 2, -4);
 scene.add(fill);
+const lowerFill = new THREE.DirectionalLight(0xfff0b8, 0.9);
+lowerFill.position.set(-2, -4, 3);
+scene.add(lowerFill);
 
 const group = new THREE.Group();
 scene.add(group);
@@ -240,13 +249,15 @@ function buildSceneStickers() {
 
     const material = new THREE.MeshStandardMaterial({
       color: COLOR_HEX[colorCodeToName(puzzle.colors[index])],
-      roughness: 0.5,
-      metalness: 0
+      roughness: 0.43,
+      metalness: 0,
+      emissive: COLOR_HEX[colorCodeToName(puzzle.colors[index])],
+      emissiveIntensity: 0.12
     });
     const mesh = new THREE.Mesh(stickerGeometry, material);
     mesh.userData = { stickerIndex: index, sticker };
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
     tile.add(mesh);
 
     stickerMeshes.set(index, mesh);
@@ -331,7 +342,9 @@ function updateStickerColors(indexes = Array.from(stickerMeshes.keys())) {
   for (const index of indexes) {
     const mesh = stickerMeshes.get(index);
     if (!mesh) continue;
-    mesh.material.color.setHex(COLOR_HEX[colorCodeToName(puzzle.colors[index])] || COLOR_HEX.white);
+    const color = COLOR_HEX[colorCodeToName(puzzle.colors[index])] || COLOR_HEX.white;
+    mesh.material.color.setHex(color);
+    mesh.material.emissive.setHex(color);
   }
 }
 
@@ -405,9 +418,7 @@ function solveInWorker() {
     worker.postMessage({
       type: "solve",
       state: puzzle.toJSON(),
-      timeoutMs: 0,
-      maxDepth: 42,
-      beamWidth: 2600
+      timeoutMs: 0
     });
   });
 }
@@ -461,61 +472,14 @@ function solverMethodLabel(method) {
   if (method === "meet-in-the-middle") return "Exact MITM";
   if (method === "rust-wasm-mitm") return "Rust WASM MITM";
   if (method === "rust-wasm-macro") return "Rust WASM macros";
-  if (method === "macro-commutator") return "Macros solved";
-  return "Beam solved";
+  return "Rust WASM";
 }
 
 function formatSolverProgress(progress) {
-  const depth = Number.isInteger(progress.depth) ? progress.depth : 0;
-  if (progress.phase === "table-build") {
-    return {
-      label: `Table d${depth + 1}`,
-      detail: "Building table",
-      meta: progressMetaText(progress)
-    };
-  }
-  if (progress.phase === "table-ready") {
-    return {
-      label: "Table ready",
-      detail: "Exact database",
-      meta: progressMetaText(progress)
-    };
-  }
-  if (progress.phase === "exact-forward") {
-    return {
-      label: `MITM d${depth + 1}`,
-      detail: "Joining database",
-      meta: progressMetaText(progress)
-    };
-  }
-  if (progress.phase === "guided-beam") {
-    const restart = Number.isInteger(progress.restart) ? progress.restart + 1 : 1;
-    return {
-      label: `Beam r${restart} d${depth + 1}`,
-      detail: progress.bestScore === 0 ? "Closing" : `Best ${Math.round(progress.bestScore || 0)}`,
-      meta: progressMetaText(progress)
-    };
-  }
-  if (progress.phase === "macro-beam") {
-    const tier = Number.isInteger(progress.tier) ? progress.tier + 1 : 1;
-    const restart = Number.isInteger(progress.restart) ? progress.restart + 1 : 1;
-    return {
-      label: `Macro t${tier} r${restart} d${depth + 1}`,
-      detail: progress.bestScore === 0 ? "Closing" : `Best ${Math.round(progress.bestScore || 0)}`,
-      meta: progressMetaText(progress)
-    };
-  }
   if (progress.phase === "wasm-solve") {
     return {
       label: "Rust WASM",
       detail: "Native solver",
-      meta: progressMetaText(progress)
-    };
-  }
-  if (progress.phase === "js-fallback") {
-    return {
-      label: "JS fallback",
-      detail: "Continuing in JavaScript",
       meta: progressMetaText(progress)
     };
   }
