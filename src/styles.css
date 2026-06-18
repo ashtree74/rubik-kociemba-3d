@@ -273,6 +273,15 @@ input[type="range"] {
   overflow-wrap: anywhere;
 }
 
+.panel-footer {
+  margin-top: auto;
+  padding-top: 4px;
+  color: #6c655a;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
 @media (max-width: 920px) {
   body {
     overflow: auto;
