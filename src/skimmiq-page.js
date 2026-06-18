@@ -2,6 +2,7 @@ import "./styles.css";
 import "./skimmiq.css";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import {
   SKIMMIQ_DIFFICULTIES,
   SKIMMIQ_LAYOUTS,
@@ -53,6 +54,12 @@ const FACE_AXES = {
     localY: new THREE.Vector3(0, 0, 1)
   }
 };
+
+const SKIMMIQ_CELL_SPACING = 0.92;
+const SKIMMIQ_BODY_SIZE = 0.91;
+const SKIMMIQ_STICKER_SIZE = 0.72;
+const SKIMMIQ_STICKER_DEPTH = 0.032;
+const SKIMMIQ_STICKER_OFFSET = SKIMMIQ_BODY_SIZE / 2 + SKIMMIQ_STICKER_DEPTH / 2 + 0.006;
 
 const canvas = document.querySelector("#skimmiqCanvas");
 const stateLabel = document.querySelector("#skimmiqStateLabel");
@@ -181,15 +188,42 @@ function buildSceneStickers() {
   group.clear();
   stickerMeshes = new Map();
 
-  const stickerGeometry = new THREE.PlaneGeometry(0.82, 0.82);
-  const backingGeometry = new THREE.PlaneGeometry(0.96, 0.96);
-  const backingMaterial = new THREE.MeshStandardMaterial({
-    color: 0x15151d,
-    roughness: 0.82,
-    metalness: 0.02,
-    side: THREE.DoubleSide
+  const bodyGeometry = new RoundedBoxGeometry(
+    SKIMMIQ_BODY_SIZE,
+    SKIMMIQ_BODY_SIZE,
+    SKIMMIQ_BODY_SIZE,
+    5,
+    0.04
+  );
+  const bodyMaterial = new THREE.MeshStandardMaterial({
+    color: 0x111119,
+    roughness: 0.72,
+    metalness: 0.02
   });
+  const stickerGeometry = new RoundedBoxGeometry(
+    SKIMMIQ_STICKER_SIZE,
+    SKIMMIQ_STICKER_SIZE,
+    SKIMMIQ_STICKER_DEPTH,
+    5,
+    0.026
+  );
   const basisMatrix = new THREE.Matrix4();
+
+  for (let x = 0; x < puzzle.layout.rows; x += 1) {
+    for (let y = 0; y < puzzle.layout.cols; y += 1) {
+      for (let z = 0; z < puzzle.layout.layers; z += 1) {
+        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+        body.position.set(
+          centerCoordinate(x, puzzle.layout.rows),
+          centerCoordinate(y, puzzle.layout.cols),
+          centerCoordinate(z, puzzle.layout.layers)
+        );
+        body.castShadow = true;
+        body.receiveShadow = true;
+        group.add(body);
+      }
+    }
+  }
 
   for (let index = 0; index < puzzle.stickers.length; index += 1) {
     const sticker = puzzle.stickers[index];
@@ -202,23 +236,17 @@ function buildSceneStickers() {
       centerCoordinate(sticker.y, puzzle.layout.cols),
       centerCoordinate(sticker.z, puzzle.layout.layers)
     );
-    tile.position.addScaledVector(axes.normal, 0.52);
-
-    const backing = new THREE.Mesh(backingGeometry, backingMaterial);
-    backing.position.z = -0.012;
-    backing.receiveShadow = true;
-    tile.add(backing);
+    tile.position.addScaledVector(axes.normal, SKIMMIQ_STICKER_OFFSET);
 
     const material = new THREE.MeshStandardMaterial({
       color: COLOR_HEX[colorCodeToName(puzzle.colors[index])],
-      roughness: 0.62,
-      metalness: 0,
-      side: THREE.DoubleSide
+      roughness: 0.5,
+      metalness: 0
     });
     const mesh = new THREE.Mesh(stickerGeometry, material);
-    mesh.position.z = 0.006;
     mesh.userData = { stickerIndex: index, sticker };
     mesh.castShadow = true;
+    mesh.receiveShadow = true;
     tile.add(mesh);
 
     stickerMeshes.set(index, mesh);
@@ -532,7 +560,7 @@ function animate() {
 }
 
 function centerCoordinate(index, count) {
-  return (index - (count - 1) / 2) * 0.88;
+  return (index - (count - 1) / 2) * SKIMMIQ_CELL_SPACING;
 }
 
 function wait(ms) {

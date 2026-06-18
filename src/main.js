@@ -1,6 +1,7 @@
 import "./styles.css";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import {
   CubieCube,
   FACE_ORDER,
@@ -51,6 +52,12 @@ const FACE_ROTATION = {
   F: { axis: "z", layer: 1, sign: -1 },
   B: { axis: "z", layer: -1, sign: 1 }
 };
+
+const CUBELET_SPACING = 1.01;
+const CUBELET_SIZE = 1;
+const STICKER_SIZE = 0.78;
+const STICKER_DEPTH = 0.034;
+const STICKER_OFFSET = CUBELET_SIZE / 2 + STICKER_DEPTH / 2 + 0.004;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xf3f1ea);
@@ -168,20 +175,20 @@ function buildVisualCube() {
   cubelets.length = 0;
   stickers.length = 0;
 
-  const bodyGeometry = new THREE.BoxGeometry(0.94, 0.94, 0.94);
+  const bodyGeometry = new RoundedBoxGeometry(CUBELET_SIZE, CUBELET_SIZE, CUBELET_SIZE, 5, 0.045);
   const bodyMaterial = new THREE.MeshStandardMaterial({
-    color: 0x141414,
-    roughness: 0.72,
+    color: 0x101014,
+    roughness: 0.68,
     metalness: 0.02
   });
-  const stickerGeometry = new THREE.PlaneGeometry(0.72, 0.72);
+  const stickerGeometry = new RoundedBoxGeometry(STICKER_SIZE, STICKER_SIZE, STICKER_DEPTH, 5, 0.028);
 
   for (let x = -1; x <= 1; x += 1) {
     for (let y = -1; y <= 1; y += 1) {
       for (let z = -1; z <= 1; z += 1) {
         if (x === 0 && y === 0 && z === 0) continue;
         const group = new THREE.Group();
-        group.position.set(x * 1.03, y * 1.03, z * 1.03);
+        group.position.set(x * CUBELET_SPACING, y * CUBELET_SPACING, z * CUBELET_SPACING);
         group.userData.coord = { x, y, z };
 
         const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
@@ -207,12 +214,11 @@ function addSticker(group, geometry, face) {
   const normal = FACE_NORMALS[face];
   const material = new THREE.MeshStandardMaterial({
     color: FACE_COLORS[face],
-    roughness: 0.48,
-    metalness: 0,
-    side: THREE.DoubleSide
+    roughness: 0.42,
+    metalness: 0
   });
   const sticker = new THREE.Mesh(geometry, material);
-  sticker.position.copy(normal).multiplyScalar(0.476);
+  sticker.position.copy(normal).multiplyScalar(STICKER_OFFSET);
   sticker.userData.face = face;
   sticker.userData.isSticker = true;
 
@@ -272,7 +278,7 @@ function applyVisualMove(moveIndex) {
   const power = (moveIndex % 3) + 1;
   const config = FACE_ROTATION[face];
   const selected = cubelets.filter((cubelet) => {
-    const layerValue = Math.round(cubelet.position[config.axis] / 1.03);
+    const layerValue = Math.round(cubelet.position[config.axis] / CUBELET_SPACING);
     return layerValue === config.layer;
   });
 
@@ -308,14 +314,14 @@ function applyVisualMove(moveIndex) {
 
 function snapCubelet(cubelet) {
   cubelet.position.set(
-    Math.round(cubelet.position.x / 1.03) * 1.03,
-    Math.round(cubelet.position.y / 1.03) * 1.03,
-    Math.round(cubelet.position.z / 1.03) * 1.03
+    Math.round(cubelet.position.x / CUBELET_SPACING) * CUBELET_SPACING,
+    Math.round(cubelet.position.y / CUBELET_SPACING) * CUBELET_SPACING,
+    Math.round(cubelet.position.z / CUBELET_SPACING) * CUBELET_SPACING
   );
   cubelet.userData.coord = {
-    x: Math.round(cubelet.position.x / 1.03),
-    y: Math.round(cubelet.position.y / 1.03),
-    z: Math.round(cubelet.position.z / 1.03)
+    x: Math.round(cubelet.position.x / CUBELET_SPACING),
+    y: Math.round(cubelet.position.y / CUBELET_SPACING),
+    z: Math.round(cubelet.position.z / CUBELET_SPACING)
   };
 }
 
