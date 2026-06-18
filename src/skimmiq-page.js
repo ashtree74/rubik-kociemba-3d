@@ -60,8 +60,9 @@ const SKIMMIQ_BODY_SIZE = 0.91;
 const SKIMMIQ_STICKER_SIZE = 0.72;
 const SKIMMIQ_STICKER_DEPTH = 0.032;
 const SKIMMIQ_STICKER_CLEARANCE = 0.004;
-const SKIMMIQ_EDGE_BEND_LIFT = 0.12;
-const SKIMMIQ_SURFACE_SLIDE_LIFT = 0.012;
+const SKIMMIQ_BEND_COLUMNS = 18;
+const SKIMMIQ_BEND_ROWS = 3;
+const SKIMMIQ_SURFACE_GAP = SKIMMIQ_STICKER_DEPTH / 2 + SKIMMIQ_STICKER_CLEARANCE + 0.004;
 const stickerGeometry = new RoundedBoxGeometry(
   SKIMMIQ_STICKER_SIZE,
   SKIMMIQ_STICKER_SIZE,
@@ -143,6 +144,8 @@ let worker = null;
 let history = [];
 let lastMove = null;
 let layoutMode = "";
+let activeBodyDimensions = getBodyDimensions(puzzle.layout);
+let activeBodyRadius = bodyRadiusForDimensions(activeBodyDimensions);
 
 renderLayoutButtons();
 renderDifficultyButtons();
@@ -210,13 +213,14 @@ function buildSceneStickers() {
   stickerTiles = new Map();
   stickerSlots = new Map();
 
-  const bodyDimensions = getBodyDimensions(puzzle.layout);
+  activeBodyDimensions = getBodyDimensions(puzzle.layout);
+  activeBodyRadius = bodyRadiusForDimensions(activeBodyDimensions);
   const bodyGeometry = new RoundedBoxGeometry(
-    bodyDimensions.x,
-    bodyDimensions.y,
-    bodyDimensions.z,
+    activeBodyDimensions.x,
+    activeBodyDimensions.y,
+    activeBodyDimensions.z,
     8,
-    Math.min(0.12, Math.min(bodyDimensions.x, bodyDimensions.y, bodyDimensions.z) * 0.16)
+    activeBodyRadius
   );
   const bodyMaterial = new THREE.MeshStandardMaterial({
     color: 0x111119,
@@ -230,7 +234,7 @@ function buildSceneStickers() {
 
   for (let index = 0; index < puzzle.stickers.length; index += 1) {
     const sticker = puzzle.stickers[index];
-    const slot = getStickerSlot(sticker, puzzle.layout, bodyDimensions);
+    const slot = getStickerSlot(sticker, puzzle.layout, activeBodyDimensions);
     const tile = new THREE.Group();
     tile.position.copy(slot.position);
     tile.quaternion.copy(slot.quaternion);
@@ -246,7 +250,7 @@ function buildSceneStickers() {
   }
 }
 
-function createStickerMesh(colorCode) {
+function createStickerMesh(colorCode, geometry = stickerGeometry) {
   const color = COLOR_HEX[colorCodeToName(colorCode)] || COLOR_HEX.white;
   const material = new THREE.MeshStandardMaterial({
     color,
@@ -255,7 +259,7 @@ function createStickerMesh(colorCode) {
     emissive: color,
     emissiveIntensity: 0.12
   });
-  const mesh = new THREE.Mesh(stickerGeometry, material);
+  const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = false;
   mesh.receiveShadow = false;
   return mesh;
@@ -271,6 +275,10 @@ function getBodyDimensions(layout) {
 
 function bodySpan(count) {
   return (count - 1) * SKIMMIQ_CELL_SPACING + SKIMMIQ_BODY_SIZE;
+}
+
+function bodyRadiusForDimensions(dimensions) {
+  return Math.min(0.12, Math.min(dimensions.x, dimensions.y, dimensions.z) * 0.16);
 }
 
 function getStickerSlot(sticker, layout, bodyDimensions) {
@@ -386,7 +394,8 @@ async function animateTapeMove(resolved, finalize) {
   } finally {
     for (const token of tokens) {
       group.remove(token.group);
-      token.mesh.material.dispose();
+      for (const mesh of token.meshes) mesh.material.dispose();
+      if (token.geometry) token.geometry.dispose();
     }
     setStickerVisibility(affectedIndexes, true);
   }
@@ -395,20 +404,106 @@ async function animateTapeMove(resolved, finalize) {
 function createTapeToken(sourceIndex, targetIndex) {
   const from = stickerSlots.get(sourceIndex);
   const to = stickerSlots.get(targetIndex);
+  if (from.face !== to.face) return createBentTapeToken(sourceIndex, from, to);
+
   const groupToken = new THREE.Group();
   groupToken.position.copy(from.position);
   groupToken.quaternion.copy(from.quaternion);
 
   const mesh = createStickerMesh(puzzle.colors[sourceIndex]);
-  mesh.scale.setScalar(1.05);
   groupToken.add(mesh);
   group.add(groupToken);
 
-  const bendNormal = from.normal.clone().add(to.normal);
-  if (bendNormal.lengthSq() < 0.01) bendNormal.copy(from.normal);
-  else bendNormal.normalize();
+  return { from, group: groupToken, meshes: [mesh], to };
+}
 
-  return { bendNormal, from, group: groupToken, mesh, to };
+function createBentTapeToken(sourceIndex, from, to) {
+  const groupToken = new THREE.Group();
+  const edgeAxis = from.normal.clone().cross(to.normal);
+  if (edgeAxis.lengthSq() < 0.01) edgeAxis.copy(FACE_AXES[from.face].localY);
+  else edgeAxis.normalize();
+
+  const towardTarget = to.position.clone().sub(from.position);
+  let fromTangent = edgeAxis.clone().cross(from.normal).normalize();
+  if (fromTangent.dot(towardTarget) < 0) {
+    edgeAxis.negate();
+    fromTangent = edgeAxis.clone().cross(from.normal).normalize();
+  }
+  const toTangent = edgeAxis.clone().cross(to.normal).normalize();
+  const bend = createEdgeBend(from, to, edgeAxis, fromTangent, toTangent);
+
+  const geometry = createBentStickerGeometry();
+  const mesh = createStickerMesh(puzzle.colors[sourceIndex], geometry);
+  mesh.material.side = THREE.DoubleSide;
+  groupToken.add(mesh);
+  group.add(groupToken);
+
+  const token = { bend, edgeAxis, from, fromTangent, geometry, group: groupToken, meshes: [mesh], to, toTangent };
+  setBentTapeTokenTransform(token, 0);
+  return token;
+}
+
+function createEdgeBend(from, to, edgeAxis, fromTangent, toTangent) {
+  const half = activeBodyDimensions.clone().multiplyScalar(0.5);
+  const edgeRadius = activeBodyRadius + SKIMMIQ_SURFACE_GAP;
+  const edgeCenter = new THREE.Vector3()
+    .addScaledVector(from.normal, halfExtentForNormal(from.normal, half) - activeBodyRadius)
+    .addScaledVector(to.normal, halfExtentForNormal(to.normal, half) - activeBodyRadius)
+    .addScaledVector(edgeAxis, from.position.dot(edgeAxis));
+  const edgeStart = edgeCenter.clone().addScaledVector(from.normal, edgeRadius);
+  const edgeEnd = edgeCenter.clone().addScaledVector(to.normal, edgeRadius);
+  const fromFlatLength = Math.max(0, edgeStart.clone().sub(from.position).dot(fromTangent));
+  const toFlatLength = Math.max(0, to.position.clone().sub(edgeEnd).dot(toTangent));
+  const arcLength = edgeRadius * Math.PI * 0.5;
+
+  return {
+    arcLength,
+    edgeCenter,
+    edgeEnd,
+    edgeRadius,
+    edgeStart,
+    fromFlatLength,
+    toFlatLength,
+    totalLength: Math.max(0.001, fromFlatLength + arcLength + toFlatLength)
+  };
+}
+
+function halfExtentForNormal(normal, half) {
+  return Math.abs(normal.x) * half.x + Math.abs(normal.y) * half.y + Math.abs(normal.z) * half.z;
+}
+
+function createBentStickerGeometry() {
+  const columns = SKIMMIQ_BEND_COLUMNS + 1;
+  const rows = SKIMMIQ_BEND_ROWS + 1;
+  const geometry = new THREE.BufferGeometry();
+  const positions = new Float32Array(columns * rows * 3);
+  const normals = new Float32Array(columns * rows * 3);
+  const uvs = new Float32Array(columns * rows * 2);
+  const indices = [];
+
+  for (let column = 0; column < columns; column += 1) {
+    for (let row = 0; row < rows; row += 1) {
+      const vertex = column * rows + row;
+      uvs[vertex * 2] = column / SKIMMIQ_BEND_COLUMNS;
+      uvs[vertex * 2 + 1] = row / SKIMMIQ_BEND_ROWS;
+    }
+  }
+
+  for (let column = 0; column < SKIMMIQ_BEND_COLUMNS; column += 1) {
+    for (let row = 0; row < SKIMMIQ_BEND_ROWS; row += 1) {
+      const a = column * rows + row;
+      const b = (column + 1) * rows + row;
+      const c = (column + 1) * rows + row + 1;
+      const d = column * rows + row + 1;
+      indices.push(a, b, d, b, c, d);
+    }
+  }
+
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3).setUsage(THREE.DynamicDrawUsage));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  return geometry;
 }
 
 function setStickerVisibility(indexes, visible) {
@@ -424,7 +519,7 @@ function animateTapeTokens(tokens, duration) {
     const step = (now) => {
       const progress = Math.min(1, (now - start) / duration);
       const eased = easeInOutCubic(progress);
-      for (const token of tokens) setTapeTokenTransform(token, eased, progress);
+      for (const token of tokens) setTapeTokenTransform(token, eased);
       if (progress < 1) requestAnimationFrame(step);
       else resolve();
     };
@@ -432,16 +527,98 @@ function animateTapeTokens(tokens, duration) {
   });
 }
 
-function setTapeTokenTransform(token, eased, progress) {
-  const isEdgeTransition = token.from.face !== token.to.face;
-  const lift = isEdgeTransition ? SKIMMIQ_EDGE_BEND_LIFT : SKIMMIQ_SURFACE_SLIDE_LIFT;
-  const liftNormal = isEdgeTransition ? token.bendNormal : token.from.normal;
-  const pulse = Math.sin(Math.PI * progress);
+function setTapeTokenTransform(token, eased) {
+  if (token.geometry) {
+    setBentTapeTokenTransform(token, eased);
+    return;
+  }
 
   token.group.position.copy(token.from.position).lerp(token.to.position, eased);
-  token.group.position.addScaledVector(liftNormal, lift * pulse);
   token.group.quaternion.copy(token.from.quaternion).slerp(token.to.quaternion, eased);
-  token.group.scale.setScalar(1.035 + 0.035 * pulse);
+  token.group.scale.setScalar(1);
+}
+
+function setBentTapeTokenTransform(token, eased) {
+  token.group.position.set(0, 0, 0);
+  token.group.quaternion.identity();
+  token.group.scale.setScalar(1);
+
+  const positions = token.geometry.attributes.position.array;
+  const normals = token.geometry.attributes.normal.array;
+  const rows = SKIMMIQ_BEND_ROWS + 1;
+  const bendSpan = SKIMMIQ_STICKER_SIZE / token.bend.totalLength;
+
+  for (let column = 0; column <= SKIMMIQ_BEND_COLUMNS; column += 1) {
+    const columnRatio = column / SKIMMIQ_BEND_COLUMNS;
+    const pathSample = eased + (columnRatio - 0.5) * bendSpan;
+    const frame = sampleBentTapeFrame(token, pathSample);
+
+    for (let row = 0; row <= SKIMMIQ_BEND_ROWS; row += 1) {
+      const rowOffset = (row / SKIMMIQ_BEND_ROWS - 0.5) * SKIMMIQ_STICKER_SIZE;
+      const vertex = column * rows + row;
+      const position = frame.position.clone().addScaledVector(frame.localY, rowOffset);
+
+      positions[vertex * 3] = position.x;
+      positions[vertex * 3 + 1] = position.y;
+      positions[vertex * 3 + 2] = position.z;
+      normals[vertex * 3] = frame.normal.x;
+      normals[vertex * 3 + 1] = frame.normal.y;
+      normals[vertex * 3 + 2] = frame.normal.z;
+    }
+  }
+
+  token.geometry.attributes.position.needsUpdate = true;
+  token.geometry.attributes.normal.needsUpdate = true;
+  token.geometry.computeBoundingSphere();
+}
+
+function sampleBentTapeFrame(token, sample) {
+  const bend = token.bend;
+  const distance = sample * bend.totalLength;
+  if (distance <= 0) {
+    return {
+      localY: token.edgeAxis,
+      normal: token.from.normal,
+      position: token.from.position.clone().addScaledVector(token.fromTangent, distance)
+    };
+  }
+  if (distance <= bend.fromFlatLength) {
+    return {
+      localY: token.edgeAxis,
+      normal: token.from.normal,
+      position: token.from.position.clone().addScaledVector(token.fromTangent, distance)
+    };
+  }
+
+  const arcDistance = distance - bend.fromFlatLength;
+  if (arcDistance <= bend.arcLength) {
+    const angle = arcDistance / bend.edgeRadius;
+    const normal = token.from.normal
+      .clone()
+      .multiplyScalar(Math.cos(angle))
+      .addScaledVector(token.to.normal, Math.sin(angle))
+      .normalize();
+    return {
+      localY: token.edgeAxis,
+      normal,
+      position: bend.edgeCenter.clone().addScaledVector(normal, bend.edgeRadius)
+    };
+  }
+
+  const targetDistance = distance - bend.fromFlatLength - bend.arcLength;
+  if (targetDistance <= bend.toFlatLength) {
+    return {
+      localY: token.edgeAxis,
+      normal: token.to.normal,
+      position: bend.edgeEnd.clone().addScaledVector(token.toTangent, targetDistance)
+    };
+  }
+
+  return {
+    localY: token.edgeAxis,
+    normal: token.to.normal,
+    position: token.to.position.clone().addScaledVector(token.toTangent, distance - bend.totalLength)
+  };
 }
 
 function easeInOutCubic(value) {
