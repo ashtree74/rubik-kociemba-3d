@@ -59,7 +59,16 @@ const SKIMMIQ_CELL_SPACING = 0.92;
 const SKIMMIQ_BODY_SIZE = 0.91;
 const SKIMMIQ_STICKER_SIZE = 0.72;
 const SKIMMIQ_STICKER_DEPTH = 0.032;
-const SKIMMIQ_STICKER_OFFSET = SKIMMIQ_BODY_SIZE / 2 + SKIMMIQ_STICKER_DEPTH / 2 + 0.006;
+const SKIMMIQ_STICKER_CLEARANCE = 0.004;
+const SKIMMIQ_EDGE_BEND_LIFT = 0.12;
+const SKIMMIQ_SURFACE_SLIDE_LIFT = 0.012;
+const stickerGeometry = new RoundedBoxGeometry(
+  SKIMMIQ_STICKER_SIZE,
+  SKIMMIQ_STICKER_SIZE,
+  SKIMMIQ_STICKER_DEPTH,
+  5,
+  0.026
+);
 
 const canvas = document.querySelector("#skimmiqCanvas");
 const stateLabel = document.querySelector("#skimmiqStateLabel");
@@ -127,6 +136,8 @@ let puzzle = new SkimmiqPuzzle("E", "classic");
 let selectedLayoutId = "E";
 let selectedDifficultyId = "classic";
 let stickerMeshes = new Map();
+let stickerTiles = new Map();
+let stickerSlots = new Map();
 let busy = false;
 let worker = null;
 let history = [];
@@ -196,73 +207,97 @@ function rebuildPuzzle() {
 function buildSceneStickers() {
   group.clear();
   stickerMeshes = new Map();
+  stickerTiles = new Map();
+  stickerSlots = new Map();
 
+  const bodyDimensions = getBodyDimensions(puzzle.layout);
   const bodyGeometry = new RoundedBoxGeometry(
-    SKIMMIQ_BODY_SIZE,
-    SKIMMIQ_BODY_SIZE,
-    SKIMMIQ_BODY_SIZE,
-    5,
-    0.04
+    bodyDimensions.x,
+    bodyDimensions.y,
+    bodyDimensions.z,
+    8,
+    Math.min(0.12, Math.min(bodyDimensions.x, bodyDimensions.y, bodyDimensions.z) * 0.16)
   );
   const bodyMaterial = new THREE.MeshStandardMaterial({
     color: 0x111119,
-    roughness: 0.72,
-    metalness: 0.02
+    roughness: 0.64,
+    metalness: 0.04
   });
-  const stickerGeometry = new RoundedBoxGeometry(
-    SKIMMIQ_STICKER_SIZE,
-    SKIMMIQ_STICKER_SIZE,
-    SKIMMIQ_STICKER_DEPTH,
-    5,
-    0.026
-  );
-  const basisMatrix = new THREE.Matrix4();
-
-  for (let x = 0; x < puzzle.layout.rows; x += 1) {
-    for (let y = 0; y < puzzle.layout.cols; y += 1) {
-      for (let z = 0; z < puzzle.layout.layers; z += 1) {
-        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-        body.position.set(
-          centerCoordinate(x, puzzle.layout.rows),
-          centerCoordinate(y, puzzle.layout.cols),
-          centerCoordinate(z, puzzle.layout.layers)
-        );
-        body.castShadow = true;
-        body.receiveShadow = true;
-        group.add(body);
-      }
-    }
-  }
+  const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
 
   for (let index = 0; index < puzzle.stickers.length; index += 1) {
     const sticker = puzzle.stickers[index];
-    const axes = FACE_AXES[sticker.face];
+    const slot = getStickerSlot(sticker, puzzle.layout, bodyDimensions);
     const tile = new THREE.Group();
-    basisMatrix.makeBasis(axes.localX, axes.localY, axes.normal);
-    tile.quaternion.setFromRotationMatrix(basisMatrix);
-    tile.position.set(
-      centerCoordinate(sticker.x, puzzle.layout.rows),
-      centerCoordinate(sticker.y, puzzle.layout.cols),
-      centerCoordinate(sticker.z, puzzle.layout.layers)
-    );
-    tile.position.addScaledVector(axes.normal, SKIMMIQ_STICKER_OFFSET);
+    tile.position.copy(slot.position);
+    tile.quaternion.copy(slot.quaternion);
 
-    const material = new THREE.MeshStandardMaterial({
-      color: COLOR_HEX[colorCodeToName(puzzle.colors[index])],
-      roughness: 0.43,
-      metalness: 0,
-      emissive: COLOR_HEX[colorCodeToName(puzzle.colors[index])],
-      emissiveIntensity: 0.12
-    });
-    const mesh = new THREE.Mesh(stickerGeometry, material);
+    const mesh = createStickerMesh(puzzle.colors[index]);
     mesh.userData = { stickerIndex: index, sticker };
-    mesh.castShadow = false;
-    mesh.receiveShadow = false;
     tile.add(mesh);
 
     stickerMeshes.set(index, mesh);
+    stickerTiles.set(index, tile);
+    stickerSlots.set(index, slot);
     group.add(tile);
   }
+}
+
+function createStickerMesh(colorCode) {
+  const color = COLOR_HEX[colorCodeToName(colorCode)] || COLOR_HEX.white;
+  const material = new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.43,
+    metalness: 0,
+    emissive: color,
+    emissiveIntensity: 0.12
+  });
+  const mesh = new THREE.Mesh(stickerGeometry, material);
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  return mesh;
+}
+
+function getBodyDimensions(layout) {
+  return new THREE.Vector3(
+    bodySpan(layout.rows),
+    bodySpan(layout.cols),
+    bodySpan(layout.layers)
+  );
+}
+
+function bodySpan(count) {
+  return (count - 1) * SKIMMIQ_CELL_SPACING + SKIMMIQ_BODY_SIZE;
+}
+
+function getStickerSlot(sticker, layout, bodyDimensions) {
+  const axes = FACE_AXES[sticker.face];
+  const basisMatrix = new THREE.Matrix4().makeBasis(axes.localX, axes.localY, axes.normal);
+  const surfaceOffset = surfaceOffsetForFace(sticker.face, bodyDimensions);
+  const position = new THREE.Vector3(
+    axes.normal.x === 0 ? centerCoordinate(sticker.x, layout.rows) : axes.normal.x * surfaceOffset,
+    axes.normal.y === 0 ? centerCoordinate(sticker.y, layout.cols) : axes.normal.y * surfaceOffset,
+    axes.normal.z === 0 ? centerCoordinate(sticker.z, layout.layers) : axes.normal.z * surfaceOffset
+  );
+
+  return {
+    face: sticker.face,
+    normal: axes.normal.clone(),
+    position,
+    quaternion: new THREE.Quaternion().setFromRotationMatrix(basisMatrix)
+  };
+}
+
+function surfaceOffsetForFace(face, bodyDimensions) {
+  const normal = FACE_AXES[face].normal;
+  const bodyDepth =
+    Math.abs(normal.x) * bodyDimensions.x +
+    Math.abs(normal.y) * bodyDimensions.y +
+    Math.abs(normal.z) * bodyDimensions.z;
+  return bodyDepth / 2 + SKIMMIQ_STICKER_DEPTH / 2 + SKIMMIQ_STICKER_CLEARANCE;
 }
 
 function renderMoveButtons() {
@@ -329,13 +364,90 @@ async function runSequence(moves, status, options = {}) {
 
 async function applyVisualMove(move) {
   const resolved = puzzle.getMove(move);
-  const meshes = resolved.cycle.map((index) => stickerMeshes.get(index)).filter(Boolean);
-  for (const mesh of meshes) mesh.scale.setScalar(1.08);
-  await wait(Math.max(20, Number(speedRange.value) * 0.45));
-  puzzle.applyMove(resolved);
-  updateStickerColors(resolved.cycle);
-  for (const mesh of meshes) mesh.scale.setScalar(1);
-  await wait(Math.max(20, Number(speedRange.value) * 0.55));
+  await animateTapeMove(resolved, () => {
+    puzzle.applyMove(resolved);
+    updateStickerColors(resolved.cycle);
+  });
+}
+
+async function animateTapeMove(resolved, finalize) {
+  const affectedIndexes = resolved.cycle;
+  const duration = Math.max(90, Number(speedRange.value) * 1.1);
+  setStickerVisibility(affectedIndexes, false);
+  const tokens = affectedIndexes.map((sourceIndex, cycleIndex) => {
+    const targetCycleIndex =
+      (cycleIndex + (resolved.direction > 0 ? 1 : -1) + affectedIndexes.length) % affectedIndexes.length;
+    return createTapeToken(sourceIndex, affectedIndexes[targetCycleIndex]);
+  });
+
+  try {
+    await animateTapeTokens(tokens, duration);
+    finalize();
+  } finally {
+    for (const token of tokens) {
+      group.remove(token.group);
+      token.mesh.material.dispose();
+    }
+    setStickerVisibility(affectedIndexes, true);
+  }
+}
+
+function createTapeToken(sourceIndex, targetIndex) {
+  const from = stickerSlots.get(sourceIndex);
+  const to = stickerSlots.get(targetIndex);
+  const groupToken = new THREE.Group();
+  groupToken.position.copy(from.position);
+  groupToken.quaternion.copy(from.quaternion);
+
+  const mesh = createStickerMesh(puzzle.colors[sourceIndex]);
+  mesh.scale.setScalar(1.05);
+  groupToken.add(mesh);
+  group.add(groupToken);
+
+  const bendNormal = from.normal.clone().add(to.normal);
+  if (bendNormal.lengthSq() < 0.01) bendNormal.copy(from.normal);
+  else bendNormal.normalize();
+
+  return { bendNormal, from, group: groupToken, mesh, to };
+}
+
+function setStickerVisibility(indexes, visible) {
+  for (const index of indexes) {
+    const tile = stickerTiles.get(index);
+    if (tile) tile.visible = visible;
+  }
+}
+
+function animateTapeTokens(tokens, duration) {
+  return new Promise((resolve) => {
+    const start = performance.now();
+    const step = (now) => {
+      const progress = Math.min(1, (now - start) / duration);
+      const eased = easeInOutCubic(progress);
+      for (const token of tokens) setTapeTokenTransform(token, eased, progress);
+      if (progress < 1) requestAnimationFrame(step);
+      else resolve();
+    };
+    requestAnimationFrame(step);
+  });
+}
+
+function setTapeTokenTransform(token, eased, progress) {
+  const isEdgeTransition = token.from.face !== token.to.face;
+  const lift = isEdgeTransition ? SKIMMIQ_EDGE_BEND_LIFT : SKIMMIQ_SURFACE_SLIDE_LIFT;
+  const liftNormal = isEdgeTransition ? token.bendNormal : token.from.normal;
+  const pulse = Math.sin(Math.PI * progress);
+
+  token.group.position.copy(token.from.position).lerp(token.to.position, eased);
+  token.group.position.addScaledVector(liftNormal, lift * pulse);
+  token.group.quaternion.copy(token.from.quaternion).slerp(token.to.quaternion, eased);
+  token.group.scale.setScalar(1.035 + 0.035 * pulse);
+}
+
+function easeInOutCubic(value) {
+  return value < 0.5
+    ? 4 * value * value * value
+    : 1 - Math.pow(-2 * value + 2, 3) / 2;
 }
 
 function updateStickerColors(indexes = Array.from(stickerMeshes.keys())) {
