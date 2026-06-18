@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "build:wasm": "node scripts/build-wasm.mjs",
     "build": "vite build",
-    "test": "node tests/solver.test.js && node tests/skimmiq.test.js"
+    "test": "node tests/solver.test.js && node tests/skimmiq.test.js && node tests/skimmiq-wasm.test.js"
   },
   "dependencies": {
     "three": "^0.179.1"

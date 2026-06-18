@@ -365,13 +365,8 @@ async function runSolver() {
     }
 
     renderMoveLog(`solve: ${result.text}`);
-    const methodLabel = result.method === "meet-in-the-middle"
-      ? "Exact MITM"
-      : result.method === "macro-commutator"
-        ? "Macros solved"
-        : "Beam solved";
     setSolverProgress(
-      methodLabel,
+      solverMethodLabel(result.method),
       `${result.moves.length} moves · ${formatCount(result.nodes)} states · ${formatTime(result.elapsedMs)}`
     );
     busy = false;
@@ -462,6 +457,14 @@ function setSolverProgress(text, meta) {
   progressMeta.textContent = meta;
 }
 
+function solverMethodLabel(method) {
+  if (method === "meet-in-the-middle") return "Exact MITM";
+  if (method === "rust-wasm-mitm") return "Rust WASM MITM";
+  if (method === "rust-wasm-macro") return "Rust WASM macros";
+  if (method === "macro-commutator") return "Macros solved";
+  return "Beam solved";
+}
+
 function formatSolverProgress(progress) {
   const depth = Number.isInteger(progress.depth) ? progress.depth : 0;
   if (progress.phase === "table-build") {
@@ -499,6 +502,20 @@ function formatSolverProgress(progress) {
     return {
       label: `Macro t${tier} r${restart} d${depth + 1}`,
       detail: progress.bestScore === 0 ? "Closing" : `Best ${Math.round(progress.bestScore || 0)}`,
+      meta: progressMetaText(progress)
+    };
+  }
+  if (progress.phase === "wasm-solve") {
+    return {
+      label: "Rust WASM",
+      detail: "Native solver",
+      meta: progressMetaText(progress)
+    };
+  }
+  if (progress.phase === "js-fallback") {
+    return {
+      label: "JS fallback",
+      detail: "Continuing in JavaScript",
       meta: progressMetaText(progress)
     };
   }
